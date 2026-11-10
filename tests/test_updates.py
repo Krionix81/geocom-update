@@ -219,6 +219,17 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(result["sha256"], digest)
             self.assertIn("feed_sha256=", requests[0]["path"])
 
+    def test_previous_pages_feed_is_retried_until_the_deployed_bytes_arrive(self):
+        payload = feed.encode_releases(feed.prepare_releases([release()]))
+        digest = hashlib.sha256(payload).hexdigest()
+        def respond(path, count):
+            return 200, b"[]\n" if count == 1 else payload, {}
+        with server(respond) as (base, requests), mock.patch.object(verify_updates.time, "sleep") as sleep:
+            result = verify_updates.verify(base + "/updates.json", digest, attempts=2, delay=5)
+            self.assertEqual(result["sha256"], digest)
+            self.assertEqual(len(requests), 2)
+            sleep.assert_called_once_with(5)
+
     def test_stale_or_non_ascii_published_feed_is_rejected(self):
         for data in (b"[]", json.dumps([release()], ensure_ascii=False).encode("utf-8")):
             with self.subTest(data=data), server(lambda path, count: (200, data, {})) as (base, _):
